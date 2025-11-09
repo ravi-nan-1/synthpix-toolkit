@@ -9,7 +9,8 @@ import ImageResizer from "@/components/tools/ImageResizer";
 import ImageConverter from "@/components/tools/ImageConverter";
 import ImageCompressor from "@/components/tools/ImageCompressor";
 import ImageFilters from "@/components/tools/ImageFilters";
-import { Sparkles, Maximize2, RefreshCw, Minimize2, Wand2 } from "lucide-react";
+import ImageTextTranslator from "@/components/tools/ImageTextTranslator";
+import { Sparkles, Maximize2, RefreshCw, Minimize2, Wand2, Languages } from "lucide-react";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("bg-remover");
@@ -80,7 +81,7 @@ const Index = () => {
             className="max-w-5xl mx-auto"
           >
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 h-auto gap-2 bg-muted p-2 rounded-2xl">
+              <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 h-auto gap-2 bg-muted p-2 rounded-2xl">
                 <TabsTrigger value="bg-remover" className="flex items-center gap-2 data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground rounded-xl py-3">
                   <Sparkles className="w-4 h-4" />
                   <span className="hidden sm:inline">Remove BG</span>
@@ -106,6 +107,11 @@ const Index = () => {
                   <span className="hidden sm:inline">Filters</span>
                   <span className="sm:hidden">FX</span>
                 </TabsTrigger>
+                <TabsTrigger value="translator" className="flex items-center gap-2 data-[state=active]:bg-gradient-primary data-[state=active]:text-primary-foreground rounded-xl py-3">
+                  <Languages className="w-4 h-4" />
+                  <span className="hidden sm:inline">Translate</span>
+                  <span className="sm:hidden">OCR</span>
+                </TabsTrigger>
               </TabsList>
 
               <div className="mt-8 bg-card rounded-3xl p-6 md:p-8 border border-border shadow-xl">
@@ -123,6 +129,9 @@ const Index = () => {
                 </TabsContent>
                 <TabsContent value="filters" className="mt-0">
                   <ImageFilters />
+                </TabsContent>
+                <TabsContent value="translator" className="mt-0">
+                  <ImageTextTranslator />
                 </TabsContent>
               </div>
             </Tabs>
