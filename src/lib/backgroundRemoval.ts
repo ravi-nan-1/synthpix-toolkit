@@ -1,9 +1,4 @@
-import { AutoModel, AutoProcessor, RawImage, env } from '@huggingface/transformers';
 import { loadImage } from './imageProcessing';
-
-// Configure transformers.js
-env.allowLocalModels = false;
-env.useBrowserCache = false;
 
 const MAX_IMAGE_DIMENSION = 1024;
 
@@ -41,20 +36,11 @@ export const removeBackground = async (
   onProgress?: (status: string) => void
 ): Promise<Blob> => {
   try {
-    onProgress?.('Loading AI model...');
-    
-    // Load model and processor using MODNet for better background removal
-    const model = await AutoModel.from_pretrained('Xenova/modnet', {
-      device: 'webgpu',
-    });
-    
-    const processor = await AutoProcessor.from_pretrained('Xenova/modnet');
+    onProgress?.('Preparing image...');
 
-    onProgress?.('Processing image...');
-    
-    // Resize image if needed
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
+
     if (!ctx) throw new Error('Could not get canvas context');
 
     const wasResized = resizeImageIfNeeded(canvas, ctx, imageElement);
@@ -62,49 +48,58 @@ export const removeBackground = async (
       `Image ${wasResized ? 'was' : 'was not'} resized. Final dimensions: ${canvas.width}x${canvas.height}`
     );
 
-    // Convert to RawImage
-    const rawImage = await RawImage.fromURL(canvas.toDataURL());
+    onProgress?.('Analyzing background...');
 
-    onProgress?.('Removing background...');
-    
-    // Pre-process image
-    const { pixel_values } = await processor(rawImage);
-    
-    // Predict alpha matte
-    const { output } = await model({ input: pixel_values });
-    
-    onProgress?.('Applying mask...');
-    
-    // Convert output to mask
-    const maskTensor = output[0].mul(255).to('uint8');
-    const mask = await RawImage.fromTensor(maskTensor);
-    const resizedMask = await mask.resize(rawImage.width, rawImage.height);
+    // Get image data
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
 
-    // Create output canvas
-    const outputCanvas = document.createElement('canvas');
-    outputCanvas.width = rawImage.width;
-    outputCanvas.height = rawImage.height;
-    const outputCtx = outputCanvas.getContext('2d');
+    // Sample background color from the four corners
+    const samplePoints = [
+      0,
+      (canvas.width - 1) * 4,
+      (canvas.width * (canvas.height - 1)) * 4,
+      ((canvas.width * canvas.height) - 1) * 4,
+    ];
 
-    if (!outputCtx) throw new Error('Could not get output canvas context');
-
-    // Draw original image
-    outputCtx.drawImage(imageElement, 0, 0, outputCanvas.width, outputCanvas.height);
-
-    // Apply mask to alpha channel
-    const outputImageData = outputCtx.getImageData(0, 0, outputCanvas.width, outputCanvas.height);
-    const data = outputImageData.data;
-    const maskData = (resizedMask as any).data;
-
-    for (let i = 0; i < maskData.length; i++) {
-      data[i * 4 + 3] = maskData[i];
+    let rSum = 0, gSum = 0, bSum = 0;
+    for (const idx of samplePoints) {
+      rSum += data[idx];
+      gSum += data[idx + 1];
+      bSum += data[idx + 2];
     }
 
-    outputCtx.putImageData(outputImageData, 0, 0);
+    const bgR = rSum / samplePoints.length;
+    const bgG = gSum / samplePoints.length;
+    const bgB = bSum / samplePoints.length;
+
+    onProgress?.('Removing background...');
+
+    // Threshold for how close a pixel needs to be to be considered background
+    const threshold = 40; // smaller = stricter, larger = more aggressive
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+
+      const distance = Math.sqrt(
+        (r - bgR) * (r - bgR) +
+        (g - bgG) * (g - bgG) +
+        (b - bgB) * (b - bgB)
+      );
+
+      if (distance < threshold) {
+        // Make background pixel transparent
+        data[i + 3] = 0;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
     onProgress?.('Finalizing...');
 
     return new Promise((resolve, reject) => {
-      outputCanvas.toBlob(
+      canvas.toBlob(
         (blob) => {
           if (blob) {
             onProgress?.('Complete!');
