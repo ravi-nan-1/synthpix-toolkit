@@ -62,7 +62,7 @@ const ImageTextTranslator = () => {
   const extractText = async (imageData: string) => {
     setIsExtracting(true);
     try {
-      const result = await Tesseract.recognize(imageData, sourceLang, {
+      const result = await Tesseract.recognize(imageData, sourceLang === 'zh' ? 'chi_sim' : sourceLang, {
         logger: (m) => console.log(m),
       });
       
@@ -71,19 +71,20 @@ const ImageTextTranslator = () => {
         setExtractedText(text);
         toast({
           title: "Text Extracted",
-          description: "Text has been extracted from the image.",
+          description: `Extracted ${text.length} characters successfully.`,
         });
       } else {
         toast({
           title: "No Text Found",
-          description: "Could not detect any text in the image.",
+          description: "Could not detect any text in the image. Try a clearer image.",
           variant: "destructive",
         });
       }
     } catch (error) {
+      console.error('OCR Error:', error);
       toast({
         title: "Extraction Failed",
-        description: "Failed to extract text from image.",
+        description: "Failed to extract text. Please try a different image.",
         variant: "destructive",
       });
     } finally {
@@ -96,27 +97,42 @@ const ImageTextTranslator = () => {
 
     setIsTranslating(true);
     try {
-      const response = await fetch(
-        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
-          extractedText
-        )}&langpair=${sourceLang}|${targetLang}`
-      );
-      
-      const data = await response.json();
-      
-      if (data.responseStatus === 200 && data.responseData.translatedText) {
-        setTranslatedText(data.responseData.translatedText);
-        toast({
-          title: "Translation Complete",
-          description: `Text translated to ${LANGUAGES.find(l => l.code === targetLang)?.name}.`,
-        });
-      } else {
-        throw new Error("Translation failed");
+      // Split long text into chunks if needed (API has limits)
+      const maxLength = 500;
+      const chunks = extractedText.match(new RegExp(`.{1,${maxLength}}`, 'g')) || [extractedText];
+      const translatedChunks = [];
+
+      for (const chunk of chunks) {
+        const response = await fetch(
+          `https://api.mymemory.translated.net/get?q=${encodeURIComponent(
+            chunk
+          )}&langpair=${sourceLang}|${targetLang}`
+        );
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.responseStatus === 200 && data.responseData.translatedText) {
+          translatedChunks.push(data.responseData.translatedText);
+        } else {
+          throw new Error(data.responseDetails || "Translation failed");
+        }
       }
+
+      const finalTranslation = translatedChunks.join(' ');
+      setTranslatedText(finalTranslation);
+      toast({
+        title: "Translation Complete",
+        description: `Successfully translated to ${LANGUAGES.find(l => l.code === targetLang)?.name}.`,
+      });
     } catch (error) {
+      console.error('Translation Error:', error);
       toast({
         title: "Translation Failed",
-        description: "Could not translate the text. Please try again.",
+        description: error instanceof Error ? error.message : "Could not translate the text. Please try again.",
         variant: "destructive",
       });
     } finally {
