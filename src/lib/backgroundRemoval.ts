@@ -76,7 +76,7 @@ export const removeBackground = async (
     onProgress?.('Removing background...');
 
     // Threshold for how close a pixel needs to be to be considered background
-    const threshold = 40; // smaller = stricter, larger = more aggressive
+    const threshold = 25; // smaller = stricter, larger = more aggressive
 
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
