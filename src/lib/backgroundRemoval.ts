@@ -1,4 +1,4 @@
-import { pipeline, env } from '@huggingface/transformers';
+import { AutoModel, AutoProcessor, RawImage, env } from '@huggingface/transformers';
 import { loadImage } from './imageProcessing';
 
 // Configure transformers.js
@@ -42,16 +42,19 @@ export const removeBackground = async (
 ): Promise<Blob> => {
   try {
     onProgress?.('Loading AI model...');
-    const segmenter = await pipeline(
-      'image-segmentation',
-      'Xenova/segformer-b0-finetuned-ade-512-512',
-      { device: 'webgpu' }
-    );
+    
+    // Load model and processor using MODNet for better background removal
+    const model = await AutoModel.from_pretrained('Xenova/modnet', {
+      device: 'webgpu',
+    });
+    
+    const processor = await AutoProcessor.from_pretrained('Xenova/modnet');
 
     onProgress?.('Processing image...');
+    
+    // Resize image if needed
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-
     if (!ctx) throw new Error('Could not get canvas context');
 
     const wasResized = resizeImageIfNeeded(canvas, ctx, imageElement);
@@ -59,31 +62,42 @@ export const removeBackground = async (
       `Image ${wasResized ? 'was' : 'was not'} resized. Final dimensions: ${canvas.width}x${canvas.height}`
     );
 
-    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+    // Convert to RawImage
+    const rawImage = await RawImage.fromURL(canvas.toDataURL());
 
     onProgress?.('Removing background...');
-    const result = await segmenter(imageData);
+    
+    // Pre-process image
+    const { pixel_values } = await processor(rawImage);
+    
+    // Predict alpha matte
+    const { output } = await model({ input: pixel_values });
+    
+    onProgress?.('Applying mask...');
+    
+    // Convert output to mask
+    const maskTensor = output[0].mul(255).to('uint8');
+    const mask = await RawImage.fromTensor(maskTensor);
+    const resizedMask = await mask.resize(rawImage.width, rawImage.height);
 
-    if (!result || !Array.isArray(result) || result.length === 0 || !result[0].mask) {
-      throw new Error('Invalid segmentation result');
-    }
-
+    // Create output canvas
     const outputCanvas = document.createElement('canvas');
-    outputCanvas.width = canvas.width;
-    outputCanvas.height = canvas.height;
+    outputCanvas.width = rawImage.width;
+    outputCanvas.height = rawImage.height;
     const outputCtx = outputCanvas.getContext('2d');
 
     if (!outputCtx) throw new Error('Could not get output canvas context');
 
-    outputCtx.drawImage(canvas, 0, 0);
+    // Draw original image
+    outputCtx.drawImage(imageElement, 0, 0, outputCanvas.width, outputCanvas.height);
 
+    // Apply mask to alpha channel
     const outputImageData = outputCtx.getImageData(0, 0, outputCanvas.width, outputCanvas.height);
     const data = outputImageData.data;
+    const maskData = (resizedMask as any).data;
 
-    // Apply inverted mask to alpha channel
-    for (let i = 0; i < result[0].mask.data.length; i++) {
-      const alpha = Math.round((1 - result[0].mask.data[i]) * 255);
-      data[i * 4 + 3] = alpha;
+    for (let i = 0; i < maskData.length; i++) {
+      data[i * 4 + 3] = maskData[i];
     }
 
     outputCtx.putImageData(outputImageData, 0, 0);
